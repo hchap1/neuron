@@ -64,6 +64,7 @@ impl<const I: usize, const O: usize, A: Action> ReplayBuffer<I, O, A> {
         self.buffer.len()
     }
 
+    #[allow(clippy::complexity)]
     pub fn split(records: Vec<&Record<I, O, A>>) -> (
         Vec<Matrix<I, 1>>,
         Vec<A>,
@@ -132,14 +133,6 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
         self.online_output_biases -= grad_b2 * (self.parameters.alpha / batch_size);
     }
 
-    pub fn mse(&self, a: &Vec<f64>, b: &Vec<f64>) -> f64 {
-        let mut total_error = 0f64;
-        for idx in 0..a.len() {
-            total_error += (a[idx] - b[idx]).powf(2f64);
-        }
-        total_error / a.len() as f64
-    }
-
     pub fn new(
         parameters: NetworkParameters,
         activation: M,
@@ -192,15 +185,15 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
         (self.frozen_output_weights * h) + self.frozen_output_biases
     }
 
-    pub fn choose_action<A: Action>(&mut self, inputs: Matrix<I, 1>) -> (A, Matrix<O, 1>) {
+    pub fn epsilon_greedy<A: Action>(&mut self, inputs: Matrix<I, 1>) -> A {
         let q = self.feedforward(inputs);
-        (if self.rng.random::<f64>() > self.parameters.epsilon {
+        if self.rng.random::<f64>() > self.parameters.epsilon {
             // Let the model choose
             A::from_usize(q.argmax().0)
         } else {
             // Pick randomly
             A::from_usize(self.rng.random_range(0_usize..4_usize))
-        }, q)
+        }
     }
 
     pub fn predict<A: Action>(&mut self, inputs: Matrix<I, 1>) -> A {

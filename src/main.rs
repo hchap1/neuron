@@ -23,7 +23,7 @@ fn main() {
         for _ in 0..parameters.max_steps {
             num_steps += 1;
             let current_state = game.get_state();
-            let (action, raw_output) = network.choose_action::<Movement>(current_state);
+            let action = network.epsilon_greedy::<Movement>(current_state);
             let reward = game.step(action);
             let next_state = game.get_state();
             let done = game.is_done();
