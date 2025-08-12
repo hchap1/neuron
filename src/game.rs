@@ -44,7 +44,13 @@ pub struct GridNavigation<const I: usize> {
 }
 
 impl<const I: usize> GridNavigation<I> {
-    pub fn new() -> Self {
+    pub fn manhattan_distance(&self) -> f64 {
+        (self.player_x - self.target_x).abs() + (self.player_y - self.target_y).abs()
+    }
+}
+
+impl<const I: usize> Game<I, Movement> for GridNavigation<I> {
+    fn new() -> Self {
         let mut game = Self {
             player_x: 0f64,
             player_y: 0f64,
@@ -57,12 +63,6 @@ impl<const I: usize> GridNavigation<I> {
         game
     }
 
-    pub fn manhattan_distance(&self) -> f64 {
-        (self.player_x - self.target_x).abs() + (self.player_y - self.target_y).abs()
-    }
-}
-
-impl<const I: usize> Game<I, Movement> for GridNavigation<I> {
     fn reset(&mut self) {
         self.player_x = self.rng.random_range(0usize..10usize) as f64;
         self.player_y = self.rng.random_range(0usize..10usize) as f64;

@@ -7,6 +7,7 @@ pub trait Action: Copy {
 }
 
 pub trait Game<const I: usize, A: Action> {
+    fn new() -> Self where Self: Sized;
     fn reset(&mut self);
     fn step(&mut self, action: A) -> f64;
     fn get_state(&self) -> Matrix<I, 1>;
@@ -198,5 +199,107 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
 
     pub fn predict<A: Action>(&mut self, inputs: Matrix<I, 1>) -> A {
         A::from_usize(self.feedforward(inputs).argmax().0)
+    }
+
+    pub fn train<G: Game<I, A>, A: Action>(&mut self) {
+        let mut game = G::new();
+        let mut replay_buffer: ReplayBuffer<I, O, A> = ReplayBuffer::new();
+        let batch_size = 10;
+
+        for _ in 0..self.parameters.num_episodes {
+            game.reset();
+
+            for _ in 0..self.parameters.max_steps {
+                let current_state = game.get_state();
+                let action = self.epsilon_greedy::<A>(current_state);
+                let reward = game.step(action);
+                let next_state = game.get_state();
+                let done = game.is_done();
+
+                replay_buffer.push(
+                    Record::new(current_state, action, reward, next_state, done)
+                );
+
+                if replay_buffer.len() >= batch_size {
+                    let batch = replay_buffer.sample(batch_size);
+                    let (
+                        states,
+                        actions,
+                        rewards,
+                        next_states,
+                        dones
+                    ) = ReplayBuffer::split(batch);
+
+                    let best_actions: Vec<A> = next_states.iter().map(|x| self.predict(*x)).collect();
+                    let next_q_target: Vec<Matrix<O, 1>> = next_states.iter().map(|x| self.frozen_feedforward(*x)).collect();
+                    let q_next: Vec<f64> = best_actions
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &a)| next_q_target[i].get(a.to_usize()))
+                        .collect();
+
+                    let targets: Vec<f64> = rewards
+                        .iter()
+                        .zip(q_next.iter())
+                        .zip(dones.iter())
+                        .map(|((&r, &q), &done)| {
+                            if done { r } else { r + self.parameters.gamma * q }
+                        })
+                        .collect();
+
+                    let q_current: Vec<Matrix<O, 1>> = states.iter().map(|x| self.feedforward(*x)).collect();
+                    let hidden_activations: Vec<Matrix<H, 1>> = states.iter().map(|x| self.hidden_activations(*x)).collect();
+                    let hidden_z: Vec<Matrix<H, 1>> = states.iter().map(|x| self.hidden_z(*x)).collect();
+                    let q_taken: Vec<f64> = actions
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &a)| q_current[i].get(a.to_usize()))
+                        .collect();
+
+                    // Gradient Descent
+                    let mut output_errors: Vec<Matrix<O, 1>> = Vec::with_capacity(batch_size);
+                    for i in 0..batch_size {
+                        let mut err_vec = Matrix::<O, 1>::zeros();
+                        let action_index = actions[i].to_usize();
+                        err_vec.set(action_index, q_taken[i] - targets[i]);
+                        output_errors.push(err_vec);
+                    }
+
+                    let mut grad_w2 = Matrix::<O, H>::zeros();
+                    let mut grad_b2 = Matrix::<O, 1>::zeros();
+
+                    for i in 0..batch_size {
+                        grad_w2 += output_errors[i] * hidden_activations[i].transpose();
+                        grad_b2 += output_errors[i];
+                    }
+
+                    // Gradients for hidden layer
+                    let mut grad_w1 = Matrix::<H, I>::zeros(); // Accumulate dL/dW1
+                    let mut grad_b1 = Matrix::<H, 1>::zeros(); // Accumulate dL/db1
+
+                    for i in 0..batch_size {
+                        let mut hidden_error = self.transposed_output_weight() * output_errors[i];
+                        for j in 0..16 {
+                            if hidden_z[i].get(j) <= 0.0 {
+                                hidden_error.set(j, 0.0);
+                            }
+                        }
+
+                        grad_w1 += hidden_error * states[i].transpose(); // (16×1)*(1×I) → (16×I)
+                        grad_b1 += hidden_error; // (16×1)
+                    }
+
+                    self.update_hidden_layer(grad_w1, grad_b1, batch_size as f64);
+                    self.update_output_layer(grad_w2, grad_b2, batch_size as f64);
+                }
+
+                if done {
+                    break
+                }
+            }
+
+            self.update_frozen();
+            self.epsilon_decay();
+        }
     }
 }
