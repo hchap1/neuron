@@ -1,0 +1,209 @@
+use rand::{rng, rngs::ThreadRng, seq::IndexedRandom, Rng};
+use crate::{matrix::Matrix, network::parameters::NetworkParameters};
+
+pub trait Action: Copy {
+    fn to_usize(&self) -> usize;
+    fn from_usize(val: usize) -> Self;
+}
+
+pub trait Game<const I: usize, A: Action> {
+    fn reset(&mut self);
+    fn step(&mut self, action: A) -> f64;
+    fn get_state(&self) -> Matrix<I, 1>;
+    fn is_done(&self) -> bool;
+}
+
+pub struct Record<const I: usize, const O: usize, A: Action> {
+    state_before_choice: Matrix<I, 1>,
+    chosen_action: A,
+    reward: f64,
+    state_after_choice: Matrix<I, 1>,
+    done: bool
+}
+
+impl<const I: usize, const O: usize, A: Action> Record<I, O, A> {
+    pub fn new(
+        state_before_choice: Matrix<I, 1>,
+        chosen_action: A,
+        reward: f64,
+        state_after_choice: Matrix<I, 1>,
+        done: bool
+    ) -> Self { Self {
+        state_before_choice,
+        chosen_action,
+        reward,
+        state_after_choice,
+        done
+    }}
+}
+
+pub struct ReplayBuffer<const I: usize, const O: usize, A: Action> {
+    buffer: Vec<Record<I, O, A>>,
+    rng: ThreadRng
+}
+
+impl<const I: usize, const O: usize, A: Action> ReplayBuffer<I, O, A> {
+    pub fn new() -> Self {
+        Self {
+            buffer: Vec::new(),
+            rng: rng()
+        }
+    }
+
+    pub fn push(&mut self, record: Record<I, O, A>) {
+        self.buffer.push(record);
+    }
+
+    pub fn sample(&mut self, batch_size: usize) -> Vec<&Record<I, O, A>> {
+        self.buffer
+            .choose_multiple(&mut self.rng, batch_size)
+            .collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.buffer.len()
+    }
+
+    pub fn split(records: Vec<&Record<I, O, A>>) -> (
+        Vec<Matrix<I, 1>>,
+        Vec<A>,
+        Vec<f64>,
+        Vec<Matrix<I, 1>>,
+        Vec<bool>
+    ) {
+        let mut a = Vec::new();
+        let mut b = Vec::new();
+        let mut c = Vec::new();
+        let mut d = Vec::new();
+        let mut e = Vec::new();
+
+        for record in records {
+            a.push(record.state_before_choice);
+            b.push(record.chosen_action);
+            c.push(record.reward);
+            d.push(record.state_after_choice);
+            e.push(record.done)
+        }
+
+        (a, b, c, d, e)
+    }
+}
+
+pub struct Network<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> {
+    parameters: NetworkParameters,
+    activation: M,
+    rng: ThreadRng,
+
+    online_hidden_weights: Matrix<H, I>,
+    online_hidden_biases: Matrix<H, 1>,
+    online_output_weights: Matrix<O, H>,
+    online_output_biases: Matrix<O, 1>,
+    frozen_hidden_weights: Matrix<H, I>,
+    frozen_hidden_biases: Matrix<H, 1>,
+    frozen_output_weights: Matrix<O, H>,
+    frozen_output_biases: Matrix<O, 1>,
+}
+
+impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<I, H, O, M> {
+
+    pub fn epsilon_decay(&mut self) {
+        self.parameters.epsilon *= self.parameters.epsilon_decay;
+        self.parameters.epsilon = self.parameters.epsilon.max(self.parameters.minimum_epsilon);
+    }
+
+    pub fn update_frozen(&mut self) {
+        self.frozen_hidden_weights = self.online_hidden_weights;
+        self.frozen_hidden_biases = self.online_hidden_biases;
+        self.frozen_output_weights = self.online_output_weights;
+        self.frozen_output_biases = self.online_output_biases;
+    }
+
+    pub fn transposed_output_weight(&self) -> Matrix<H, O> {
+        self.online_output_weights.transpose()
+    }
+
+    pub fn update_hidden_layer(&mut self, grad_w1: Matrix<H, I>, grad_b1: Matrix<H, 1>, batch_size: f64) {
+        self.online_hidden_weights -= grad_w1 * (self.parameters.alpha / batch_size);
+        self.online_hidden_biases -= grad_b1 * (self.parameters.alpha / batch_size);
+    }
+
+    pub fn update_output_layer(&mut self, grad_w2: Matrix<O, H>, grad_b2: Matrix<O, 1>, batch_size: f64) {
+        self.online_output_weights -= grad_w2 * (self.parameters.alpha / batch_size);
+        self.online_output_biases -= grad_b2 * (self.parameters.alpha / batch_size);
+    }
+
+    pub fn mse(&self, a: &Vec<f64>, b: &Vec<f64>) -> f64 {
+        let mut total_error = 0f64;
+        for idx in 0..a.len() {
+            total_error += (a[idx] - b[idx]).powf(2f64);
+        }
+        total_error / a.len() as f64
+    }
+
+    pub fn new(
+        parameters: NetworkParameters,
+        activation: M,
+    ) -> Self {
+
+        let mut rng = rng();
+
+        let online_hidden_weights = Matrix::<H, I>::he_dist(&mut rng);
+        let online_hidden_biases = Matrix::<H, 1>::zeros();
+        let online_output_weights = Matrix::<O, H>::he_dist(&mut rng);
+        let online_output_biases = Matrix::<O, 1>::zeros();
+        let frozen_hidden_weights = Matrix::<H, I>::he_dist(&mut rng);
+        let frozen_hidden_biases = Matrix::<H, 1>::zeros();
+        let frozen_output_weights = Matrix::<O, H>::he_dist(&mut rng);
+        let frozen_output_biases = Matrix::<O, 1>::zeros();
+
+        Self {
+            parameters,
+            activation,
+            rng,
+            online_hidden_weights,
+            online_hidden_biases,
+            online_output_weights,
+            online_output_biases,
+            frozen_hidden_weights,
+            frozen_hidden_biases,
+            frozen_output_weights,
+            frozen_output_biases,
+        }
+    }
+
+    pub fn hidden_activations(&self, inputs: Matrix<I, 1>) -> Matrix<H, 1> {
+        let h_raw = (self.online_hidden_weights * inputs) + self.online_hidden_biases;
+        h_raw.map(&self.activation)
+    }
+
+    pub fn hidden_z(&self, inputs: Matrix<I, 1>) -> Matrix<H, 1> {
+        (self.online_hidden_weights * inputs) + self.online_hidden_biases
+    }
+
+    pub fn feedforward(&self, inputs: Matrix<I, 1>) -> Matrix<O, 1> {
+        let h_raw = (self.online_hidden_weights * inputs) + self.online_hidden_biases;
+        let h = h_raw.map(&self.activation);
+        (self.online_output_weights * h) + self.online_output_biases
+    }
+
+    pub fn frozen_feedforward(&self, inputs: Matrix<I, 1>) -> Matrix<O, 1> {
+        let h_raw = (self.frozen_hidden_weights * inputs) + self.frozen_hidden_biases;
+        let h = h_raw.map(&self.activation);
+        (self.frozen_output_weights * h) + self.frozen_output_biases
+    }
+
+    pub fn choose_action<A: Action>(&mut self, inputs: Matrix<I, 1>) -> (A, Matrix<O, 1>) {
+        let q = self.feedforward(inputs);
+        (if self.rng.random::<f64>() > self.parameters.epsilon {
+            // Let the model choose
+            A::from_usize(q.argmax().0)
+        } else {
+            // Pick randomly
+            A::from_usize(self.rng.random_range(0_usize..4_usize))
+        }, q)
+    }
+
+    pub fn predict<A: Action>(&mut self, inputs: Matrix<I, 1>) -> A {
+        A::from_usize(self.feedforward(inputs).argmax().0)
+    }
+}
