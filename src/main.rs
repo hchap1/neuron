@@ -44,7 +44,7 @@ fn main() {
                     dones
                 ) = ReplayBuffer::split(batch);
 
-                let best_actions: Vec<Movement> = next_states.iter().map(|x| network.choose_action(*x).0).collect();
+                let best_actions: Vec<Movement> = next_states.iter().map(|x| network.predict(*x)).collect();
                 let next_q_target: Vec<Matrix<4, 1>> = next_states.iter().map(|x| network.frozen_feedforward(*x)).collect();
                 let q_next: Vec<f64> = best_actions
                     .iter()
