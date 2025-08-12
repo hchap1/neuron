@@ -2,8 +2,7 @@ use crate::network::parameters::NetworkParameters;
 use crate::network::reinforcement_learning::Network;
 use crate::network::reinforcement_learning::Game;
 
-use crate::game::GridNavigation;
-use crate::game::Movement;
+use crate::game::grid_navigation::*;
 
 mod network;
 mod matrix;

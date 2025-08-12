@@ -265,6 +265,7 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
                         output_errors.push(err_vec);
                     }
 
+                    // Gradients for output layer
                     let mut grad_w2 = Matrix::<O, H>::zeros();
                     let mut grad_b2 = Matrix::<O, 1>::zeros();
 
@@ -274,19 +275,19 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
                     }
 
                     // Gradients for hidden layer
-                    let mut grad_w1 = Matrix::<H, I>::zeros(); // Accumulate dL/dW1
-                    let mut grad_b1 = Matrix::<H, 1>::zeros(); // Accumulate dL/db1
+                    let mut grad_w1 = Matrix::<H, I>::zeros();
+                    let mut grad_b1 = Matrix::<H, 1>::zeros();
 
                     for i in 0..batch_size {
                         let mut hidden_error = self.transposed_output_weight() * output_errors[i];
-                        for j in 0..16 {
+                        for j in 0..H {
                             if hidden_z[i].get(j) <= 0.0 {
                                 hidden_error.set(j, 0.0);
                             }
                         }
 
-                        grad_w1 += hidden_error * states[i].transpose(); // (16×1)*(1×I) → (16×I)
-                        grad_b1 += hidden_error; // (16×1)
+                        grad_w1 += hidden_error * states[i].transpose();
+                        grad_b1 += hidden_error;
                     }
 
                     self.update_hidden_layer(grad_w1, grad_b1, batch_size as f64);
