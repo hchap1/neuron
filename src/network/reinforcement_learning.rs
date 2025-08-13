@@ -312,3 +312,250 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
         }
     }
 }
+
+pub struct DualNetwork<const I: usize, const H1: usize, const H2: usize, const O: usize, M: Fn(f64) -> f64> {
+    parameters: NetworkParameters,
+    activation: M,
+    rng: ThreadRng,
+
+    // Online network weights
+    online_hidden1_weights: Matrix<H1, I>,
+    online_hidden1_biases: Matrix<H1, 1>,
+    online_hidden2_weights: Matrix<H2, H1>,
+    online_hidden2_biases: Matrix<H2, 1>,
+    online_output_weights: Matrix<O, H2>,
+    online_output_biases: Matrix<O, 1>,
+
+    // Frozen (target) network weights
+    frozen_hidden1_weights: Matrix<H1, I>,
+    frozen_hidden1_biases: Matrix<H1, 1>,
+    frozen_hidden2_weights: Matrix<H2, H1>,
+    frozen_hidden2_biases: Matrix<H2, 1>,
+    frozen_output_weights: Matrix<O, H2>,
+    frozen_output_biases: Matrix<O, 1>,
+}
+
+impl<const I: usize, const H1: usize, const H2: usize, const O: usize, M: Fn(f64) -> f64> DualNetwork<I, H1, H2, O, M> {
+    pub fn epsilon_decay(&mut self) {
+        self.parameters.epsilon *= self.parameters.epsilon_decay;
+        self.parameters.epsilon = self.parameters.epsilon.max(self.parameters.minimum_epsilon);
+    }
+
+    pub fn update_frozen(&mut self) {
+        self.frozen_hidden1_weights = self.online_hidden1_weights;
+        self.frozen_hidden1_biases = self.online_hidden1_biases;
+        self.frozen_hidden2_weights = self.online_hidden2_weights;
+        self.frozen_hidden2_biases = self.online_hidden2_biases;
+        self.frozen_output_weights = self.online_output_weights;
+        self.frozen_output_biases = self.online_output_biases;
+    }
+
+    pub fn transposed_output_weight(&self) -> Matrix<H2, O> {
+        self.online_output_weights.transpose()
+    }
+
+    pub fn transposed_hidden2_weight(&self) -> Matrix<H1, H2> {
+        self.online_hidden2_weights.transpose()
+    }
+
+    pub fn update_hidden1_layer(&mut self, grad_w: Matrix<H1, I>, grad_b: Matrix<H1, 1>, batch_size: f64) {
+        self.online_hidden1_weights -= grad_w * (self.parameters.alpha / batch_size);
+        self.online_hidden1_biases -= grad_b * (self.parameters.alpha / batch_size);
+    }
+
+    pub fn update_hidden2_layer(&mut self, grad_w: Matrix<H2, H1>, grad_b: Matrix<H2, 1>, batch_size: f64) {
+        self.online_hidden2_weights -= grad_w * (self.parameters.alpha / batch_size);
+        self.online_hidden2_biases -= grad_b * (self.parameters.alpha / batch_size);
+    }
+
+    pub fn update_output_layer(&mut self, grad_w: Matrix<O, H2>, grad_b: Matrix<O, 1>, batch_size: f64) {
+        self.online_output_weights -= grad_w * (self.parameters.alpha / batch_size);
+        self.online_output_biases -= grad_b * (self.parameters.alpha / batch_size);
+    }
+
+    pub fn new(activation: M) -> Self {
+        let mut rng = rng();
+
+        // Online init
+        let online_hidden1_weights = Matrix::<H1, I>::he_dist(&mut rng);
+        let online_hidden1_biases = Matrix::<H1, 1>::zeros();
+        let online_hidden2_weights = Matrix::<H2, H1>::he_dist(&mut rng);
+        let online_hidden2_biases = Matrix::<H2, 1>::zeros();
+        let online_output_weights = Matrix::<O, H2>::he_dist(&mut rng);
+        let online_output_biases = Matrix::<O, 1>::zeros();
+
+        // Frozen init
+        let frozen_hidden1_weights = online_hidden1_weights;
+        let frozen_hidden1_biases = online_hidden1_biases;
+        let frozen_hidden2_weights = online_hidden2_weights;
+        let frozen_hidden2_biases = online_hidden2_biases;
+        let frozen_output_weights = online_output_weights;
+        let frozen_output_biases = online_output_biases;
+
+        Self {
+            parameters: NetworkParameters::default(),
+            activation,
+            rng,
+
+            online_hidden1_weights,
+            online_hidden1_biases,
+            online_hidden2_weights,
+            online_hidden2_biases,
+            online_output_weights,
+            online_output_biases,
+
+            frozen_hidden1_weights,
+            frozen_hidden1_biases,
+            frozen_hidden2_weights,
+            frozen_hidden2_biases,
+            frozen_output_weights,
+            frozen_output_biases,
+        }
+    }
+
+    pub fn hidden1_activations(&self, inputs: Matrix<I, 1>) -> Matrix<H1, 1> {
+        let z = (self.online_hidden1_weights * inputs) + self.online_hidden1_biases;
+        z.map(&self.activation)
+    }
+
+    pub fn hidden2_activations(&self, h1: Matrix<H1, 1>) -> Matrix<H2, 1> {
+        let z = (self.online_hidden2_weights * h1) + self.online_hidden2_biases;
+        z.map(&self.activation)
+    }
+
+    pub fn hidden1_z(&self, inputs: Matrix<I, 1>) -> Matrix<H1, 1> {
+        (self.online_hidden1_weights * inputs) + self.online_hidden1_biases
+    }
+
+    pub fn hidden2_z(&self, h1: Matrix<H1, 1>) -> Matrix<H2, 1> {
+        (self.online_hidden2_weights * h1) + self.online_hidden2_biases
+    }
+
+    pub fn feedforward(&self, inputs: Matrix<I, 1>) -> Matrix<O, 1> {
+        let h1 = self.hidden1_activations(inputs);
+        let h2 = self.hidden2_activations(h1);
+        (self.online_output_weights * h2) + self.online_output_biases
+    }
+
+    pub fn frozen_feedforward(&self, inputs: Matrix<I, 1>) -> Matrix<O, 1> {
+        let h1 = ((self.frozen_hidden1_weights * inputs) + self.frozen_hidden1_biases).map(&self.activation);
+        let h2 = ((self.frozen_hidden2_weights * h1) + self.frozen_hidden2_biases).map(&self.activation);
+        (self.frozen_output_weights * h2) + self.frozen_output_biases
+    }
+
+    pub fn epsilon_greedy<A: Action>(&mut self, inputs: Matrix<I, 1>) -> A {
+        let q = self.feedforward(inputs);
+        if self.rng.random::<f64>() > self.parameters.epsilon {
+            A::from_usize(q.argmax().0)
+        } else {
+            A::from_usize(self.rng.random_range(0_usize..O))
+        }
+    }
+
+    pub fn predict<A: Action>(&self, inputs: Matrix<I, 1>) -> A {
+        A::from_usize(self.feedforward(inputs).argmax().0)
+    }
+
+    pub fn train<G: Game<I, A>, A: Action>(&mut self) {
+        let mut game = G::new();
+        self.parameters = game.get_params();
+        let mut replay_buffer: ReplayBuffer<I, O, A> = ReplayBuffer::new();
+        let batch_size = 32;
+
+        for episode in 0..self.parameters.num_episodes {
+            game.reset();
+            let mut num_steps = 0;
+
+            for _ in 0..self.parameters.max_steps {
+                num_steps += 1;
+                let state = game.get_state();
+                let action = self.epsilon_greedy::<A>(state);
+                let reward = game.step(action);
+                let next_state = game.get_state();
+                let done = game.is_done();
+
+                replay_buffer.push(Record::new(state, action, reward, next_state, done));
+
+                if replay_buffer.len() >= batch_size {
+                    let batch = replay_buffer.sample(batch_size);
+                    let (states, actions, rewards, next_states, dones) = ReplayBuffer::split(batch);
+
+                    // Double DQN target
+                    let best_actions: Vec<A> = next_states.iter().map(|x| self.predict(*x)).collect();
+                    let next_q_target: Vec<Matrix<O, 1>> = next_states.iter().map(|x| self.frozen_feedforward(*x)).collect();
+                    let q_next: Vec<f64> = best_actions.iter().enumerate()
+                        .map(|(i, &a)| next_q_target[i].get(a.to_usize()))
+                        .collect();
+
+                    let targets: Vec<f64> = rewards.iter().zip(q_next.iter()).zip(dones.iter())
+                        .map(|((&r, &q), &done)| if done { r } else { r + self.parameters.gamma * q })
+                        .collect();
+
+                    // Forward for grads
+                    let h1_all: Vec<Matrix<H1, 1>> = states.iter().map(|&s| self.hidden1_activations(s)).collect();
+                    let h2_all: Vec<Matrix<H2, 1>> = h1_all.iter().map(|h1| self.hidden2_activations(*h1)).collect();
+                    let z1_all: Vec<Matrix<H1, 1>> = states.iter().map(|&s| self.hidden1_z(s)).collect();
+                    let z2_all: Vec<Matrix<H2, 1>> = h1_all.iter().map(|h1| self.hidden2_z(*h1)).collect();
+                    let q_current: Vec<Matrix<O, 1>> = h2_all.iter().map(|h2| (self.online_output_weights * *h2) + self.online_output_biases).collect();
+
+                    let q_taken: Vec<f64> = actions.iter().enumerate()
+                        .map(|(i, &a)| q_current[i].get(a.to_usize()))
+                        .collect();
+
+                    // Output errors
+                    let mut output_errors: Vec<Matrix<O, 1>> = Vec::with_capacity(batch_size);
+                    for i in 0..batch_size {
+                        let mut err_vec = Matrix::<O, 1>::zeros();
+                        err_vec.set(actions[i].to_usize(), q_taken[i] - targets[i]);
+                        output_errors.push(err_vec);
+                    }
+
+                    // Grad W3/B3
+                    let mut grad_w3 = Matrix::<O, H2>::zeros();
+                    let mut grad_b3 = Matrix::<O, 1>::zeros();
+                    for i in 0..batch_size {
+                        grad_w3 += output_errors[i] * h2_all[i].transpose();
+                        grad_b3 += output_errors[i];
+                    }
+
+                    // Hidden layer 2 errors
+                    let mut grad_w2 = Matrix::<H2, H1>::zeros();
+                    let mut grad_b2 = Matrix::<H2, 1>::zeros();
+                    let mut hidden2_errors: Vec<Matrix<H2, 1>> = Vec::with_capacity(batch_size);
+                    for i in 0..batch_size {
+                        let mut err_h2 = self.transposed_output_weight() * output_errors[i];
+                        for j in 0..H2 {
+                            if z2_all[i].get(j) <= 0.0 { err_h2.set(j, 0.0); }
+                        }
+                        hidden2_errors.push(err_h2);
+                        grad_w2 += err_h2 * h1_all[i].transpose();
+                        grad_b2 += err_h2;
+                    }
+
+                    // Hidden layer 1 errors
+                    let mut grad_w1 = Matrix::<H1, I>::zeros();
+                    let mut grad_b1 = Matrix::<H1, 1>::zeros();
+                    for i in 0..batch_size {
+                        let mut err_h1 = self.transposed_hidden2_weight() * hidden2_errors[i];
+                        for j in 0..H1 {
+                            if z1_all[i].get(j) <= 0.0 { err_h1.set(j, 0.0); }
+                        }
+                        grad_w1 += err_h1 * states[i].transpose();
+                        grad_b1 += err_h1;
+                    }
+
+                    // Apply updates
+                    self.update_hidden1_layer(grad_w1, grad_b1, batch_size as f64);
+                    self.update_hidden2_layer(grad_w2, grad_b2, batch_size as f64);
+                    self.update_output_layer(grad_w3, grad_b3, batch_size as f64);
+                }
+
+                if done { break; }
+            }
+
+            println!("Episode: {episode}, Steps survived: {num_steps}");
+            self.update_frozen();
+            self.epsilon_decay();
+        }
+    }
+}

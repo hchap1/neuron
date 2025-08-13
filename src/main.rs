@@ -1,4 +1,4 @@
-use crate::network::reinforcement_learning::Network;
+use crate::network::reinforcement_learning::DualNetwork;
 use crate::network::reinforcement_learning::Game;
 
 use crate::game::cart_pole::*;
@@ -7,6 +7,7 @@ mod network;
 mod matrix;
 mod game;
 
+use simple::Point;
 use simple::Rect;
 use simple::Window;
 
@@ -15,7 +16,7 @@ fn main() {
     window.set_color(255, 0, 0, 255);
 
     let mut game = CartPole::new();
-    let mut network = Network::<5, 16, 2, _>::new(|x: f64| x.max(0f64));
+    let mut network = DualNetwork::<5, 16, 32, 2, _>::new(|x: f64| x.max(0f64));
 
     network.train::<CartPole, CartAction>();
 
@@ -30,6 +31,12 @@ fn main() {
 
         window.fill_rect(Rect::new(cart_pos - 100, 400, 200, 50));
         window.fill_rect(Rect::new(cart_pos + pole_offset, 400 - pole_height, 5, 5));
+        window.draw_polygon(vec![
+            Point::new(cart_pos + pole_offset - 5, 400 - pole_height),
+            Point::new(cart_pos + pole_offset + 5, 400 - pole_height),
+            Point::new(cart_pos + 5, 400),
+            Point::new(cart_pos - 5, 400)
+        ]);
 
         if window.is_key_down(simple::Key::Space) {
             game.reset();

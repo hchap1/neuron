@@ -32,7 +32,7 @@ impl Default for NetworkParameters {
     fn default() -> Self {
         Self {
             alpha: 0.01,
-            gamma: 0.1,
+            gamma: 0.9,
             epsilon_decay: 0.9995,
             minimum_epsilon: 0.01,
             num_episodes: 10000,

@@ -90,7 +90,7 @@ impl Game<5, CartAction> for CartPole {
             reward -= 5f64;
         }
 
-        reward + self.cart_velocity.abs() + self.pole_angle.abs()
+        reward + self.cart_velocity.abs()
     }
 
     fn get_state(&self) -> Matrix<5, 1> {
