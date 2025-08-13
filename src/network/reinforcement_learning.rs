@@ -204,7 +204,7 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
     pub fn train<G: Game<I, A>, A: Action>(&mut self) {
         let mut game = G::new();
         let mut replay_buffer: ReplayBuffer<I, O, A> = ReplayBuffer::new();
-        let batch_size = 64;
+        let batch_size = 32;
 
         for episode in 0..self.parameters.num_episodes {
             game.reset();

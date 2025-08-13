@@ -34,6 +34,10 @@ fn main() {
         window.fill_rect(Rect::new(cart_pos - 100, 400, 200, 50));
         window.fill_rect(Rect::new(cart_pos + pole_offset, 400 - pole_height, 5, 5));
 
+        if window.is_key_down(simple::Key::Space) {
+            game.reset();
+        }
+
         if game.is_done() {
             game.reset();
         }

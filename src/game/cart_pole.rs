@@ -78,13 +78,18 @@ impl Game<5, CartAction> for CartPole {
         self.cart_position += self.cart_velocity * 0.01;
         self.pole_angle += self.pole_velocity * 0.02;
         self.lifetime += 0.05f64;
-        let reward_for_balance = if self.pole_angle.to_degrees().abs() < 5f64 { 1f64 } else { -1f64 };
+        let reward_for_balance = 90f64 - self.pole_angle.to_degrees().abs();
         let position_error = (self.cart_position - self.target_x).abs();
-        let mut reward = if position_error > 10f64 { 0f64 } else { reward_for_balance + self.lifetime };
+        let mut reward = reward_for_balance - position_error * 5f64;
         
-        if self.cart_position < self.target_x && self.pole_angle > 0f64 { reward += 0.1f64; }
-        if self.cart_position > self.target_x && self.pole_angle < 0f64 { reward += 0.1f64; }
-        reward
+        if self.pole_angle.to_degrees().abs() < 10f64 {
+            if self.cart_position < self.target_x && self.pole_angle > 0f64 { reward += 0.2f64; }
+            if self.cart_position > self.target_x && self.pole_angle < 0f64 { reward += 0.2f64; }
+        } else {
+            reward -= 5f64;
+        }
+
+        reward + self.cart_velocity.abs() + self.pole_angle.abs()
     }
 
     fn get_state(&self) -> Matrix<5, 1> {
@@ -100,6 +105,8 @@ impl Game<5, CartAction> for CartPole {
     fn is_done(&self) -> bool {
         self.pole_angle < -PI / 2f64
         || self.pole_angle > PI / 2f64
+        || self.cart_position > 1f64
+        || self.cart_position < 0f64
     }
 }
 
