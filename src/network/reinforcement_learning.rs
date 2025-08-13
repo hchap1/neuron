@@ -193,7 +193,7 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
             A::from_usize(q.argmax().0)
         } else {
             // Pick randomly
-            A::from_usize(self.rng.random_range(0_usize..4_usize))
+            A::from_usize(self.rng.random_range(0_usize..O))
         }
     }
 
@@ -204,12 +204,15 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
     pub fn train<G: Game<I, A>, A: Action>(&mut self) {
         let mut game = G::new();
         let mut replay_buffer: ReplayBuffer<I, O, A> = ReplayBuffer::new();
-        let batch_size = 10;
+        let batch_size = 64;
 
-        for _ in 0..self.parameters.num_episodes {
+        for episode in 0..self.parameters.num_episodes {
             game.reset();
 
+            let mut num_steps = 0;
+
             for _ in 0..self.parameters.max_steps {
+                num_steps += 1;
                 let current_state = game.get_state();
                 let action = self.epsilon_greedy::<A>(current_state);
                 let reward = game.step(action);
@@ -298,6 +301,8 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
                     break
                 }
             }
+
+            println!("Episode: {episode}. Survived: {num_steps}");
 
             self.update_frozen();
             self.epsilon_decay();

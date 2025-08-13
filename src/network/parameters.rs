@@ -31,12 +31,12 @@ pub struct NetworkParameters {
 impl Default for NetworkParameters {
     fn default() -> Self {
         Self {
-            alpha: 0.02,
-            gamma: 0.8,
+            alpha: 0.005,
+            gamma: 0.1,
             epsilon_decay: 0.9995,
             minimum_epsilon: 0.01,
-            num_episodes: 5000,
-            max_steps: 100,
+            num_episodes: 10000,
+            max_steps: 10000,
             epsilon: 1.0,
         }
     }
