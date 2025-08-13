@@ -12,6 +12,9 @@ pub trait Game<const I: usize, A: Action> {
     fn step(&mut self, action: A) -> f64;
     fn get_state(&self) -> Matrix<I, 1>;
     fn is_done(&self) -> bool;
+    fn get_params(&self) -> NetworkParameters {
+        NetworkParameters::default()
+    }
 }
 
 pub struct Record<const I: usize, const O: usize, A: Action> {
@@ -135,7 +138,6 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
     }
 
     pub fn new(
-        parameters: NetworkParameters,
         activation: M,
     ) -> Self {
 
@@ -151,7 +153,7 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
         let frozen_output_biases = Matrix::<O, 1>::zeros();
 
         Self {
-            parameters,
+            parameters: NetworkParameters::default(),
             activation,
             rng,
             online_hidden_weights,
@@ -203,6 +205,7 @@ impl<const I: usize, const H: usize, const O: usize, M: Fn(f64) -> f64> Network<
 
     pub fn train<G: Game<I, A>, A: Action>(&mut self) {
         let mut game = G::new();
+        self.parameters = game.get_params();
         let mut replay_buffer: ReplayBuffer<I, O, A> = ReplayBuffer::new();
         let batch_size = 32;
 

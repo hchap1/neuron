@@ -5,6 +5,7 @@ use rand::rng;
 use rand::Rng;
 
 use crate::matrix::Matrix;
+use crate::network::parameters::NetworkParameters;
 use crate::network::reinforcement_learning::Game;
 use crate::network::reinforcement_learning::Action;
 
@@ -107,6 +108,18 @@ impl Game<5, CartAction> for CartPole {
         || self.pole_angle > PI / 2f64
         || self.cart_position > 1f64
         || self.cart_position < 0f64
+    }
+
+    fn get_params(&self) -> NetworkParameters {
+        NetworkParameters {
+            alpha: 0.01,
+            gamma: 0.1,
+            epsilon_decay: 0.9995,
+            minimum_epsilon: 0.01,
+            num_episodes: 10000,
+            max_steps: 1000,
+            epsilon: 1.0,
+        }
     }
 }
 

@@ -1,4 +1,3 @@
-use crate::network::parameters::NetworkParameters;
 use crate::network::reinforcement_learning::Network;
 use crate::network::reinforcement_learning::Game;
 
@@ -16,9 +15,7 @@ fn main() {
     window.set_color(255, 0, 0, 255);
 
     let mut game = CartPole::new();
-
-    let parameters = NetworkParameters::default();
-    let mut network = Network::<5, 16, 2, _>::new(parameters, |x: f64| x.max(0f64));
+    let mut network = Network::<5, 16, 2, _>::new(|x: f64| x.max(0f64));
 
     network.train::<CartPole, CartAction>();
 
